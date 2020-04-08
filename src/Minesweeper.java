@@ -251,6 +251,19 @@ public class Minesweeper {
         return copy;
     }
     
+    public static String generateBitstring(ArrayList<BoardNode> modifiedCells) {
+    	Collections.sort(modifiedCells);
+    	String ret = "";
+    	for (int i = 0; i < modifiedCells.size(); i++) {
+    		if (modifiedCells.get(i).isMineFlagged) {
+    			ret += '1';
+    		}else {
+    			ret+= '0';
+    		}
+    	}
+    	return ret;
+    }
+    
     public static void copyConstraints(ArrayList<Logic> constraintsCopy, ArrayList<Logic> constraints, BoardNode[][] knowledgeBaseCopy) {
     	for (int i = 0; i < constraints.size(); i++) {
     		Logic constraint = constraints.get(i);
