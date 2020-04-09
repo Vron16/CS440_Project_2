@@ -1,5 +1,6 @@
 
-public class BoardNode {
+public class BoardNode implements Comparable <BoardNode>{
+
 	int row;
 	int col;
 	private int numMineNbrs; //generated at start, private and hidden from agent
@@ -38,6 +39,21 @@ public class BoardNode {
 	public int getNumMineNbrs () {
 		return numMineNbrs;
 	}
-	
-	
+
+	//Returns -1 if this < o, 1 if o < this, 0 otherwise
+	public int compareTo(BoardNode o) {
+		if (this.row < o.row) {
+			return -1;
+		}else if(o.row < this.row) {
+			return 1;
+		}else{
+			if (this.col < o.col) {
+				return -1;
+			}else if(o.col < this.col) {
+				return -1;
+			}
+		}
+		return 0;
+	}
+		
 }

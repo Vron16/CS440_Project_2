@@ -1,3 +1,4 @@
+
 import javax.swing.*;
 import java.awt.*;
 //import java.util.Random;
@@ -311,6 +312,19 @@ public class Minesweeper {
             copy.add(new Logic(cellCpy, unknownCpy, list.get(i).minesLeft));
         }
         return copy;
+    }
+    
+    public static String generateBitstring(ArrayList<BoardNode> modifiedCells) {
+    	Collections.sort(modifiedCells);
+    	String ret = "";
+    	for (int i = 0; i < modifiedCells.size(); i++) {
+    		if (modifiedCells.get(i).isMineFlagged) {
+    			ret += '1';
+    		}else {
+    			ret+= '0';
+    		}
+    	}
+    	return ret;
     }
     
     public static void copyConstraints(ArrayList<Logic> constraintsCopy, ArrayList<Logic> constraints, BoardNode[][] knowledgeBaseCopy) {
