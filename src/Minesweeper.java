@@ -187,9 +187,9 @@ public class Minesweeper {
                 	// cell back, flag in the actual knowledge base, and loop to call direct inference
                 	BoardNode variable = variables.remove(0);
                 	System.out.println("Assumption: (" + variable.row + ", " + variable.col + ") is a mine.");
-                	System.out.println("Press c to constraint satisfy with this assumption:");
-                    Scanner reader = new Scanner(System.in);
-                    String keepGoing = reader.nextLine();
+                	//System.out.println("Press c to constraint satisfy with this assumption:");
+                  //  Scanner reader = new Scanner(System.in);
+                    //String keepGoing = reader.nextLine();
                 	BoardNode contradiction = constraintSatisfy(knowledgeBaseCopy, variable, constraintsCopy, true);
                 	if (contradiction != null) {
                 		// Flag the node as clear in the REAL knowledge base and the GUI.
@@ -216,7 +216,7 @@ public class Minesweeper {
                 		// Now, repeat by assuming that the node is clear and look for a contradiction.
                 		System.out.println("Assumption: (" + variable.row + ", " + variable.col + ") is clear.");
                     	System.out.println("Press c to constraint satisfy with this assumption:");
-                        keepGoing = reader.nextLine();
+                     //   keepGoing = reader.nextLine();
                     	contradiction = constraintSatisfy(knowledgeBaseCopy, variable, constraintsCopy, false);
                     	if (contradiction != null) {
                     		// Flag the node as mine in the REAL knowledge base and the GUI.
@@ -266,12 +266,12 @@ public class Minesweeper {
                 System.out.println("Press c to continue:");
                 Scanner reader = new Scanner(System.in);
                 String keepGoing = reader.nextLine();
-                List<Double> prbs  = generateMinePrbs(knowledgeBaseBoard, constraints);
-                for (int i = 0; i < prbs.size(); i++) System.out.println(prbs.get(i));
-                Random randGenerator = new Random();
-                BoardNode kbQuery = availableCells.remove(randGenerator.nextInt(availableCells.size()));
+                assignMinePrbs(knowledgeBaseBoard, constraints);
+                
+             //   Random randGenerator = new Random();
+                BoardNode kbQuery = availableCells.remove(cellWithMinMinePrb(availableCells));
                 int clue = board.query(kbQuery.row, kbQuery.col);
-              //  System.out.println("Random clue for cell: (" + kbQuery.row + ", " + kbQuery.col + ") is " + clue);
+                System.out.println("Querying cell: (" + kbQuery.row + ", " + kbQuery.col + ") with mine prb " + kbQuery.minePrb);
                 numErrors += updateQuery(knowledgeBaseBoard, knowledgeBaseGUI, kbQuery, clue, constraints);
                 directInference(knowledgeBaseBoard, knowledgeBaseGUI, kbQuery, availableCells, clearedCells, constraints);
             }
@@ -280,6 +280,17 @@ public class Minesweeper {
         return (totalMines - numErrors)/(totalMines);
     }
    
+    public static int cellWithMinMinePrb(ArrayList<BoardNode>available){
+    	double minPrb = 1;
+    	int index = 0;
+    	for (int i = 0; i < available.size(); i++) {
+    		if (available.get(i).minePrb < minPrb) {
+    			minPrb = available.get(i).minePrb;
+    			index = i;
+    		}
+    	}
+    	return index;
+    }
     public static void copyKnowledgeBase(BoardNode[][] knowledgeBaseCopy, BoardNode[][] knowledgeBaseBoard) {
     	for (int i = 0; i < knowledgeBaseBoard.length; i++) {
     		for (int j = 0; j < knowledgeBaseBoard.length; j++) {
@@ -319,12 +330,14 @@ public class Minesweeper {
     public static String generateBitstring(ArrayList<BoardNode> modifiedCells) {
     	Collections.sort(modifiedCells);
     	String ret = "";
+    	System.out.println("str size: " + modifiedCells.size());
     	for (int i = 0; i < modifiedCells.size(); i++) {
     		if (modifiedCells.get(i).isMineFlagged) {
     			ret += '1';
     		}else {
     			ret+= '0';
     		}
+    		System.out.println("Generating bitstring: " + ret);
     	}
     	return ret;
     }
@@ -349,7 +362,8 @@ public class Minesweeper {
     public static ArrayList<BoardNode> copyAvailable(ArrayList<BoardNode>arr){
         ArrayList<BoardNode> copy = new ArrayList<BoardNode>();
         for (int i = 0; i < arr.size(); i++) {
-            copy.add(arr.get(i));
+        	BoardNode curr = arr.get(i);
+            copy.add(new BoardNode(curr.row, curr.col, curr.getNumMineNbrs(), curr.numMineNbrsDisplayed, curr.numMineNbrFlags, curr.isMineFlagged, curr.isCleared, curr.numClearedNbr));
         }
         return copy;
     }
@@ -489,50 +503,94 @@ public class Minesweeper {
     }
     
     //Given an arraylist of bitstrings representing possible configurations, returns an arraylist of doubles representing the probability that each cell is a mine 
-    public static List<Double> computeMinePrbs(List<String> configs){
-    	List<Double> prbs = new ArrayList<Double>();
+    public static void computeMinePrbs(List<String> configs, ArrayList<BoardNode> cells){
+    	Collections.sort(cells); //ensure cell order matches configuration order
+    	if (configs.isEmpty()) return;
     	double totalConfigs = configs.size();
-    	for (int i = 0; i < configs.get(i).length(); i++) {
+    	for (int i = 0; i < configs.get(0).length(); i++) {
     		double mineInstances = 0;
     		for (int j = 0; j < configs.size(); j++) {
     			if (configs.get(j).charAt(i) == '1') {
     				mineInstances++;
     			}
     		}
-    		prbs.add(i, (mineInstances/totalConfigs));
+    		System.out.println("Assigning mine probability for cell (" + cells.get(i).row + "," 
+    				+ cells.get(i).col + "): " + (mineInstances/totalConfigs));
+    		cells.get(i).minePrb = (mineInstances/totalConfigs);
+    		System.out.println(i);
     	}
-    	return prbs;
     }
-    public static List<Double> generateMinePrbs(BoardNode [][]kbBoard, ArrayList<Logic> constraints) {
+    
+    public static void buildConfigs(ArrayList<BoardNode[][]> configs, BoardNode[][] kbCopy, ArrayList<Logic> constraintsCopy, ArrayList<BoardNode> modifiedCells, boolean isContradiction) {
+    	BoardNode[][] kbAtLevel = new BoardNode[kbCopy.length][kbCopy.length];
+    	ArrayList<Logic> constraintsAtLevel = new ArrayList<Logic> ();
+    	copyKnowledgeBase(kbAtLevel, kbCopy);
+    	copyConstraints(constraintsAtLevel, constraintsCopy, kbAtLevel);
+    	ArrayList<BoardNode> modifiedCellsAtLevel = new ArrayList<BoardNode>();
+    	getVariables(modifiedCellsAtLevel, constraintsAtLevel);
+    	if (constraintsAtLevel.isEmpty()) {
+    		System.out.println("Adding a valid configuration to the list");
+    		BoardNode[][] justInCase = new BoardNode[kbCopy.length][kbCopy.length];
+    		copyKnowledgeBase(justInCase, kbCopy);
+    		configs.add(justInCase);
+    	}else if(isContradiction) {
+    		System.out.println("Found a contradiction! Returning one level up.");
+    		return;
+    	}else {
+    		BoardNode currCell = modifiedCells.remove(0);
+    		System.out.println("Assuming (" + currCell.row + "," + currCell.col + ") is a mine.");
+    		currCell.isMineFlagged = true;
+    		updateAllConstraints(constraintsCopy);
+    		boolean contraMine = directInference(kbCopy, null, currCell, new ArrayList<BoardNode>(), new ArrayList<BoardNode>(), constraintsCopy);
+    		buildConfigs(configs, kbCopy, constraintsCopy, modifiedCells, contraMine);
+    		//kbCopy = kbAtLevel;
+    		//modifiedCells = modifiedCellsAtLevel;
+    		//constraintsCopy = constraintsAtLevel;
+    		currCell = modifiedCellsAtLevel.remove(0);
+    		System.out.println("Assuming (" + currCell.row + "," + currCell.col + ") is clear.");
+    		currCell.isCleared = true;
+    		updateAllConstraints(constraintsAtLevel);
+    		boolean contraClear = directInference(kbAtLevel, null, currCell, new ArrayList<BoardNode>(), new ArrayList<BoardNode>(), constraintsAtLevel);
+    		buildConfigs(configs, kbAtLevel, constraintsAtLevel, modifiedCellsAtLevel, contraClear);
+    	}
+    }
+    /*TODO: Fix this so that it iterates over all variables actually in eqns--not all clues!*/
+    public static void assignMinePrbs(BoardNode [][]kbBoard, ArrayList<Logic> constraints) {
+    	if (constraints.isEmpty()) return;
     	BoardNode[][] kbCopy = new BoardNode[kbBoard.length][kbBoard.length];
     	ArrayList<BoardNode> modifiedCells = new ArrayList<BoardNode>();
     	ArrayList<Logic> constraintsCopy = new ArrayList<Logic> (constraints.size());
-    	ArrayList<String> configurations = new ArrayList<String>();
+    	ArrayList<String> stringConfigurations = new ArrayList<String>();
+    	copyKnowledgeBase(kbCopy, kbBoard);
+    	copyConstraints(constraintsCopy, constraints, kbCopy);
+    	getVariables(modifiedCells, constraintsCopy);
+    	System.out.println("number of vars: " + modifiedCells.size());
     	int mineFlag = 1;
-    	for (int i = 0; i < constraintsCopy.size(); i++) {
-        	copyKnowledgeBase(kbCopy, kbBoard);
-        	copyConstraints(constraintsCopy, constraints, kbCopy);
-        	for (int r = 0; r < constraintsCopy.size(); r++) {
-        		modifiedCells.add(constraintsCopy.get(r).cell);
-        	}
-    		BoardNode currCell = constraintsCopy.get(i).cell;
-    		if (mineFlag == 1) {
-    			currCell.isMineFlagged = true;
-    			mineFlag = 0;
-    		}else {
-    			currCell.isCleared = true;
-    			mineFlag = 1;
+    	List<BoardNode[][]> boardConfigurations = new ArrayList<BoardNode[][]>();
+    	buildConfigs((ArrayList<BoardNode[][]>)boardConfigurations, kbCopy, constraintsCopy, modifiedCells, false);
+    	ArrayList<BoardNode> config = new ArrayList<BoardNode>();
+    	copyKnowledgeBase(kbCopy, kbBoard);
+    	copyConstraints(constraintsCopy, constraints, kbCopy);
+    	modifiedCells = new ArrayList<BoardNode>();
+    	getVariables(modifiedCells, constraintsCopy);
+    	for (int i = 0; i < boardConfigurations.size(); i++) {
+    		for (int j = 0; j < modifiedCells.size(); j++) {
+    		//	System.out.println("(" + boardConfigurations.get(i)[modifiedCells.get(j).row][modifiedCells.get(j).col].row +"," +
+    			//		boardConfigurations.get(i)[modifiedCells.get(j).row][modifiedCells.get(j).col].col + ") is a mine? " + boardConfigurations.get(i)[modifiedCells.get(j).row][modifiedCells.get(j).col].isMineFlagged);
+    			config.add(boardConfigurations.get(i)[modifiedCells.get(j).row][modifiedCells.get(j).col]);
     		}
-    		updateAllConstraints(constraintsCopy);
-    		boolean contradiction = directInference(kbCopy, new BoardCellPanel[10][10], currCell, new ArrayList<BoardNode>(), new ArrayList<BoardNode>(), constraintsCopy);
-    		if (constraintsCopy.isEmpty() && !contradiction) { //the above assumption satisfied all the constraints and the configuration is valid
-    			configurations.add(generateBitstring(modifiedCells));
+    		//System.out.println("size of configuration: " + config.size());
+    		String c = generateBitstring(config);
+    		config = new ArrayList<BoardNode>();
+    		if (!stringConfigurations.contains(c)) {	
+    			stringConfigurations.add(c);
+    			//System.out.println("Added config " + c);
     		}
-    		if (mineFlag == 0) i--;
-       		currCell.isMineFlagged = false;
-       		currCell.isCleared = false;
+    		//c = "";
     	}
-    	return computeMinePrbs(configurations);
+    	modifiedCells = new ArrayList<BoardNode>();
+    	getVariables(modifiedCells, constraints);
+    	computeMinePrbs(stringConfigurations, modifiedCells);
     }
    
     //flags cells as mine or cleared based on queried cell clue
@@ -866,11 +924,11 @@ public class Minesweeper {
             	return true;
             }
             removeDuplicates(constraints);
-            System.out.println("After inferring based on single constraints: ");
+           // System.out.println("After inferring based on single constraints: ");
             printConstraints(constraints);
-            System.out.println("Finished inferring based on single constraints. Press c to infer based on systems of constraints: ");
-            Scanner reader = new Scanner(System.in);
-            String keepGoing = reader.nextLine();
+           // System.out.println("Finished inferring based on single constraints. Press c to infer based on systems of constraints: ");
+          //  Scanner reader = new Scanner(System.in);
+          //  String keepGoing = reader.nextLine();
             //reader.close();
             // Now that everything has been inferred using all uncovered clues independently, we
             // use the following method to sort all the constraints based on the value of the 
@@ -1042,15 +1100,15 @@ public class Minesweeper {
    
     public static void main(String[] args) {
     	
-    	Environment gameBoard = new Environment(7, 12);
+    	Environment gameBoard = new Environment(15, 100);
      
-	    BoardCellPanel[][] mineSweeperCells = buildBoard(7);
+	    BoardCellPanel[][] mineSweeperCells = buildBoard(15);
 	    for (int i = 0; i < mineSweeperCells.length; i++) {
 	        for (int j = 0; j < mineSweeperCells.length; j++) {
 	            changeCell(mineSweeperCells[i][j], gameBoard.textGUI(i, j));
 	        }
 	    }
-//      double score = playGame(gameBoard, 27);
+     // double score = playGame(gameBoard, 12);
 //      System.out.println("Basic Agent Score: " + score);
       	double score = playInferenceGame(gameBoard, 12);
 //      System.out.println("Inference game score: " + score);
