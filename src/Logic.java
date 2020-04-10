@@ -36,6 +36,10 @@ public class Logic {
 			}
 		}
 	}
+	
+	public boolean isContradiction() {
+		return (minesLeft < 0) || (unknownNbrs.size() < minesLeft);
+	}
 
 	public Logic(BoardNode cell, ArrayList<BoardNode> unknowns, int minesLeft) {
 		this.cell = cell;

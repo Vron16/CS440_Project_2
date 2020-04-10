@@ -1,3 +1,4 @@
+
 import javax.swing.*;
 import java.awt.*;
 //import java.util.Random;
@@ -91,7 +92,7 @@ public class Minesweeper {
                 availableCells.remove(kbQuery);
                 // Query the cell from the environment and get the clue
                 int clue = board.query(kbQuery.row, kbQuery.col);
-                numErrors += updateQuery(knowledgeBaseBoard, null, kbQuery, clue, constraints, false);
+                numErrors += updateQuery(knowledgeBaseBoard, null, kbQuery, clue, constraints);
                 // Queried cell cannot be a mine in here (already flagged as clear). If it has some neighbors that are
                 // still unknown, we should represent it in our knowledge base.
                 Logic constraint = new Logic(kbQuery, getNbrs(knowledgeBaseBoard, kbQuery));
@@ -99,7 +100,7 @@ public class Minesweeper {
                     constraints.add(constraint);
                     // We know it's not solved...so try to see if we can solve it
                     // and accordingly flag its neighbors!
-                    updateKnowledgeBase(knowledgeBaseBoard, null, kbQuery, availableCells, clearedCells, constraint, constraints);
+                    updateKnowledgeBase(knowledgeBaseBoard, null, availableCells, clearedCells, constraint, constraints);
                 }
             }
             if (!availableCells.isEmpty()) { // get random cell
@@ -110,7 +111,7 @@ public class Minesweeper {
                 BoardNode kbQuery = availableCells.remove(randGenerator.nextInt(availableCells.size()));
                 int clue = board.query(kbQuery.row, kbQuery.col);
                 //System.out.println("Clue: " + clue);
-                numErrors += updateQuery(knowledgeBaseBoard, null, kbQuery, clue, constraints, true);
+                numErrors += updateQuery(knowledgeBaseBoard, null, kbQuery, clue, constraints);
                 // We only update the knowledge base if the clue is not -1 (not a mine) and
                 // it still has some neighbors that are unknown.
                 if (clue != -1) {
@@ -119,7 +120,7 @@ public class Minesweeper {
                         constraints.add(constraint);
                         // We know it's not solved...so try to see if we can solve it
                         // and accordingly flag its neighbors!
-                        updateKnowledgeBase(knowledgeBaseBoard, null, kbQuery, availableCells, clearedCells, constraint, constraints);
+                        updateKnowledgeBase(knowledgeBaseBoard, null, availableCells, clearedCells, constraint, constraints);
                     }
                 }
             }
@@ -160,28 +161,89 @@ public class Minesweeper {
                     availableCells.remove(kbQuery);
                     int clue = board.query(kbQuery.row, kbQuery.col);
                     //System.out.println("Formerly cleared clue for cell: (" + kbQuery.row + ", " + kbQuery.col + ") is " + clue);
-                    numErrors += updateQuery(knowledgeBaseBoard, knowledgeBaseGUI, kbQuery, clue, constraints, false);
-                    directInference(knowledgeBaseBoard, knowledgeBaseGUI, kbQuery, availableCells, clearedCells, constraints, false);
+                    numErrors += updateQuery(knowledgeBaseBoard, knowledgeBaseGUI, kbQuery, clue, constraints);
+                    directInference(knowledgeBaseBoard, knowledgeBaseGUI, kbQuery, availableCells, clearedCells, constraints);
                 }
                 //constraintSatisfy
+                System.out.println("Cleared cells has been emptied; trying constraint satisfaction.");
                 // First, create a deep copy of the knowledgeBaseBoard
-                //BoardNode[][] knowledgeBaseCopy = new BoardNode[knowledgeBaseBoard.length][knowledgeBaseBoard.length];
-                //copyKnowledgeBase(knowledgeBaseCopy, knowledgeBaseBoard);
+                BoardNode[][] knowledgeBaseCopy = new BoardNode[knowledgeBaseBoard.length][knowledgeBaseBoard.length];
+                copyKnowledgeBase(knowledgeBaseCopy, knowledgeBaseBoard);
                 // Then create deep copy of constraints. Each constraint's variables should
                 // reference the BoardNode in constraintSatisfactionKB that corresponds to 
                 // the BoardNode in knowledgeBaseBoard.
-                //ArrayList<Logic> constraintsCopy = new ArrayList<Logic>();
-                //copyConstraints(constraintsCopy, constraints, knowledgeBaseCopy);
-                //ArrayList<BoardNode> variables = new ArrayList<BoardNode>();
-                //getVariables(variables, constraintsCopy);
-                //while (!variables.isEmpty()) {
+                ArrayList<Logic> constraintsCopy = new ArrayList<Logic>();
+                copyConstraints(constraintsCopy, constraints, knowledgeBaseCopy);
+                System.out.println("Constraints have been copied. Copied constraints have: ");
+                printConstraints(constraintsCopy);
+                ArrayList<BoardNode> variables = new ArrayList<BoardNode>();
+                getVariables(variables, constraintsCopy);
+                while (!variables.isEmpty()) {
                 	// First, try flagging the variable as a mine and playing one turn with that.
                 	// This involves calling updateQuery and directInference and then seeing whether
                 	// any of the constraints are now equal to a number greater than the number of 
                 	// variables (minesLeft > unknownNbrs.size() or minesLeft < 0).
                 	// If that occurs, we have encountered a contradiction. We return that particular
                 	// cell back, flag in the actual knowledge base, and loop to call direct inference
-                //}
+                	BoardNode variable = variables.remove(0);
+                	System.out.println("Assumption: (" + variable.row + ", " + variable.col + ") is a mine.");
+                	System.out.println("Press c to constraint satisfy with this assumption:");
+                    Scanner reader = new Scanner(System.in);
+                    String keepGoing = reader.nextLine();
+                	BoardNode contradiction = constraintSatisfy(knowledgeBaseCopy, variable, constraintsCopy, true);
+                	if (contradiction != null) {
+                		// Flag the node as clear in the REAL knowledge base and the GUI.
+                		// Update clearedCells and perform directInference on the real
+                		// board/constraints. Then break loop.
+                		knowledgeBaseBoard[contradiction.row][contradiction.col].isMineFlagged = false;
+                		knowledgeBaseBoard[contradiction.row][contradiction.col].isCleared = true;
+                		changeCell(knowledgeBaseGUI[contradiction.row][contradiction.col], "C");
+                		clearedCells.add(knowledgeBaseBoard[contradiction.row][contradiction.col]);
+                		updateAllConstraints(constraints);
+                		if (checkContradiction(constraints)) {
+                			System.out.println("This is bad. We constraint satisfied, hit a contradiction, assumed that the opposite must be true, and then hit another contradiction somehow.");
+                		} else {
+                			directInference(knowledgeBaseBoard, knowledgeBaseGUI, knowledgeBaseBoard[contradiction.row][contradiction.col],
+                					availableCells, clearedCells, constraints);
+                			break;
+                		}	
+                	} else {
+                		// Reset the knowledgeBaseCopy and constraintsCopy to look exactly like
+                		// current known state of the board (guarantees we're only making one 
+                		// assumption at a time).
+                		copyKnowledgeBase(knowledgeBaseCopy, knowledgeBaseBoard);
+                		copyConstraints(constraintsCopy, constraints, knowledgeBaseCopy);
+                		// Now, repeat by assuming that the node is clear and look for a contradiction.
+                		System.out.println("Assumption: (" + variable.row + ", " + variable.col + ") is clear.");
+                    	System.out.println("Press c to constraint satisfy with this assumption:");
+                        keepGoing = reader.nextLine();
+                    	contradiction = constraintSatisfy(knowledgeBaseCopy, variable, constraintsCopy, false);
+                    	if (contradiction != null) {
+                    		// Flag the node as mine in the REAL knowledge base and the GUI.
+                    		// Update available and perform directInference on the real
+                    		// board/constraints. Then break loop.
+                    		knowledgeBaseBoard[contradiction.row][contradiction.col].isMineFlagged = true;
+                    		knowledgeBaseBoard[contradiction.row][contradiction.col].isCleared = false;
+                    		changeCell(knowledgeBaseGUI[contradiction.row][contradiction.col], "M");
+                    		availableCells.remove(knowledgeBaseBoard[contradiction.row][contradiction.col]);
+                    		updateAllConstraints(constraints);
+                    		if (checkContradiction(constraints)) {
+                    			System.out.println("This is bad. We constraint satisfied, hit a contradiction, assumed that the opposite must be true, and then hit another contradiction somehow.");
+                    		} else {
+                    			directInference(knowledgeBaseBoard, knowledgeBaseGUI, knowledgeBaseBoard[contradiction.row][contradiction.col],
+                    					availableCells, clearedCells, constraints);
+                    			break;
+                    		}
+                    	}
+                	}
+                	// If we get here, we tried to see whether flagging variable as a mine or as clear
+                	// would result in contradictions. Neither caused contradictions, so we cannot
+                	// conclusively determine what it is one way or another. We reset constraintsCopy and
+                	// knowledgeBaseCopy and try with the next variable.
+                	copyKnowledgeBase(knowledgeBaseCopy, knowledgeBaseBoard);
+            		copyConstraints(constraintsCopy, constraints, knowledgeBaseCopy);
+                	
+                }
 //                System.out.println("entering constraint satisfy");
 //                ArrayList <BoardNode> variablesToTry = copyAvailable(availableCells); // consider deep copy
 //                while (!variablesToTry.isEmpty()) {
@@ -200,18 +262,21 @@ public class Minesweeper {
 //                }
             }
             else {
-            	//System.out.println("querying random cell");
+            	System.out.println("querying random cell");
                 System.out.println("Press c to continue:");
                 Scanner reader = new Scanner(System.in);
                 String keepGoing = reader.nextLine();
+                List<Double> prbs  = generateMinePrbs(knowledgeBaseBoard, constraints);
+                for (int i = 0; i < prbs.size(); i++) System.out.println(prbs.get(i));
                 Random randGenerator = new Random();
                 BoardNode kbQuery = availableCells.remove(randGenerator.nextInt(availableCells.size()));
                 int clue = board.query(kbQuery.row, kbQuery.col);
               //  System.out.println("Random clue for cell: (" + kbQuery.row + ", " + kbQuery.col + ") is " + clue);
-                numErrors += updateQuery(knowledgeBaseBoard, knowledgeBaseGUI, kbQuery, clue, constraints, true);
-                directInference(knowledgeBaseBoard, knowledgeBaseGUI, kbQuery, availableCells, clearedCells, constraints, true);
+                numErrors += updateQuery(knowledgeBaseBoard, knowledgeBaseGUI, kbQuery, clue, constraints);
+                directInference(knowledgeBaseBoard, knowledgeBaseGUI, kbQuery, availableCells, clearedCells, constraints);
             }
         }
+        System.out.println("Score: " + (totalMines-numErrors)/(totalMines));
         return (totalMines - numErrors)/(totalMines);
     }
    
@@ -265,6 +330,7 @@ public class Minesweeper {
     }
     
     public static void copyConstraints(ArrayList<Logic> constraintsCopy, ArrayList<Logic> constraints, BoardNode[][] knowledgeBaseCopy) {
+    	constraintsCopy.clear();
     	for (int i = 0; i < constraints.size(); i++) {
     		Logic constraint = constraints.get(i);
     		BoardNode constraintCell = constraint.cell;
@@ -286,6 +352,40 @@ public class Minesweeper {
             copy.add(arr.get(i));
         }
         return copy;
+    }
+    
+    public static BoardNode constraintSatisfy(BoardNode[][] knowledgeBaseCopy, BoardNode variable, ArrayList<Logic> constraintsCopy,
+    		boolean asMine) {
+    	if (asMine) {
+    		// Simulate querying the copied knowledgeBase with the the variable flagged as a mine.
+        	knowledgeBaseCopy[variable.row][variable.col].isMineFlagged = true;
+        	knowledgeBaseCopy[variable.row][variable.col].isCleared = false;
+    	} else {
+    		// Simulate querying the copied knowledgeBase with the the variable flagged as clear.
+        	knowledgeBaseCopy[variable.row][variable.col].isMineFlagged = false;
+        	knowledgeBaseCopy[variable.row][variable.col].isCleared = true;
+    	}
+    	
+    	// Now that the variable cell has been flagged as a mine (assumption complete), we
+    	// update all constraints based on that and remove any that have already been solved.
+    	updateAllConstraints(constraintsCopy);
+    	System.out.println("After updating constraints: ");
+    	printConstraints(constraintsCopy);
+    	// Then, we check if these updates have resulted in any contradictions.
+    	if (checkContradiction(constraintsCopy)) {
+    		System.out.println("We found a contradiction right after the assumption.");
+    		return variable;
+    	}
+    	// Next, we try running directInference and see if any contradictions occur
+    	// during that inference.
+    	if (directInference(knowledgeBaseCopy, null, variable, new ArrayList<BoardNode>(), new ArrayList<BoardNode>(),
+    			constraintsCopy)) {
+    		System.out.println("Contradiction occurred when inferencing after assuming (" 
+    				+ variable.row + ", " + variable.col + ") is a mine.");
+    		return variable;
+    	}
+    	
+    	return null;
     }
    
     //before constraintSatisfaction is called: BoardNode flip = findMostFrequentBN (constraints); //mark flip as flag
@@ -365,19 +465,13 @@ public class Minesweeper {
     
     public static double updateQuery(BoardNode [][] boardKnowledgeBase,
             BoardCellPanel[][] mineSweeperCells, BoardNode kbQuery, int clue,
-            ArrayList<Logic> constraints, boolean isQueryRandom) {
-        /*try {
-            TimeUnit.SECONDS.sleep(1);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }*/
+            ArrayList<Logic> constraints) {
+        
         double numErrors = 0;
-        boolean clickedOnMine = false;
         if (clue == -1) { //agent clicked on a mine
             numErrors++;
             boardKnowledgeBase[kbQuery.row][kbQuery.col].isMineFlagged = true;
             boardKnowledgeBase[kbQuery.row][kbQuery.col].isCleared = false;
-            clickedOnMine = true;
             changeCell(mineSweeperCells[kbQuery.row][kbQuery.col], "exploded");
         } else {
             boardKnowledgeBase[kbQuery.row][kbQuery.col].numMineNbrsDisplayed = clue;
@@ -385,29 +479,78 @@ public class Minesweeper {
             changeCell(mineSweeperCells[kbQuery.row][kbQuery.col], String.valueOf(boardKnowledgeBase[kbQuery.row][kbQuery.col].numMineNbrsDisplayed));
         }
         // Brute force impl. for now...go through all constraints and update them
-        // now that this cell has been flagged
+        // now that this cell has been flagged.
+       
         for (int i = 0; i < constraints.size(); i++) {
             Logic currentConstraint = constraints.get(i);
             currentConstraint.updateConstraint();
         }
-        //updateQueriedNbrs(boardKnowledgeBase, kbQuery, clickedOnMine, isQueryRandom);
         return numErrors;
+    }
+    
+    //Given an arraylist of bitstrings representing possible configurations, returns an arraylist of doubles representing the probability that each cell is a mine 
+    public static List<Double> computeMinePrbs(List<String> configs){
+    	List<Double> prbs = new ArrayList<Double>();
+    	double totalConfigs = configs.size();
+    	for (int i = 0; i < configs.get(i).length(); i++) {
+    		double mineInstances = 0;
+    		for (int j = 0; j < configs.size(); j++) {
+    			if (configs.get(j).charAt(i) == '1') {
+    				mineInstances++;
+    			}
+    		}
+    		prbs.add(i, (mineInstances/totalConfigs));
+    	}
+    	return prbs;
+    }
+    public static List<Double> generateMinePrbs(BoardNode [][]kbBoard, ArrayList<Logic> constraints) {
+    	BoardNode[][] kbCopy = new BoardNode[kbBoard.length][kbBoard.length];
+    	ArrayList<BoardNode> modifiedCells = new ArrayList<BoardNode>();
+    	ArrayList<Logic> constraintsCopy = new ArrayList<Logic> (constraints.size());
+    	ArrayList<String> configurations = new ArrayList<String>();
+    	int mineFlag = 1;
+    	for (int i = 0; i < constraintsCopy.size(); i++) {
+        	copyKnowledgeBase(kbCopy, kbBoard);
+        	copyConstraints(constraintsCopy, constraints, kbCopy);
+        	for (int r = 0; r < constraintsCopy.size(); r++) {
+        		modifiedCells.add(constraintsCopy.get(r).cell);
+        	}
+    		BoardNode currCell = constraintsCopy.get(i).cell;
+    		if (mineFlag == 1) {
+    			currCell.isMineFlagged = true;
+    			mineFlag = 0;
+    		}else {
+    			currCell.isCleared = true;
+    			mineFlag = 1;
+    		}
+    		updateAllConstraints(constraintsCopy);
+    		boolean contradiction = directInference(kbCopy, new BoardCellPanel[10][10], currCell, new ArrayList<BoardNode>(), new ArrayList<BoardNode>(), constraintsCopy);
+    		if (constraintsCopy.isEmpty() && !contradiction) { //the above assumption satisfied all the constraints and the configuration is valid
+    			configurations.add(generateBitstring(modifiedCells));
+    		}
+    		if (mineFlag == 0) i--;
+       		currCell.isMineFlagged = false;
+       		currCell.isCleared = false;
+    	}
+    	return computeMinePrbs(configurations);
     }
    
     //flags cells as mine or cleared based on queried cell clue
     public static ArrayList<BoardNode> updateKnowledgeBase (BoardNode [][] knowledgeBaseBoard, BoardCellPanel[][] mineSweeperCells,
-            BoardNode kbQuery, ArrayList<BoardNode> availableCells, ArrayList<BoardNode> clearedCells,
+            ArrayList<BoardNode> availableCells, ArrayList<BoardNode> clearedCells,
             Logic constraint, ArrayList<Logic> constraints) {
         ArrayList<BoardNode> newlyFlagged = new ArrayList<BoardNode>();
-        //flag hidden neighbors as mine
+        // If the constraint passed in is solvable, then all the variables in the constraint
+        // are flagged/solved. We return an ArrayList of the variables of that constraint that
+        // were just flagged. 
         if (constraint.isSolvable()) {
-            newlyFlagged = flagAllNeighbors(knowledgeBaseBoard, mineSweeperCells, kbQuery, availableCells, clearedCells, constraint, constraints);
+            newlyFlagged = flagAllNeighbors(knowledgeBaseBoard, mineSweeperCells, availableCells, clearedCells, constraint, constraints);
         }
         return newlyFlagged;
         //implement method to update the nbrs of query cell (decrement hidden nbrs and increment nbrs flagged)
     }
     
-    public static void solveSingleConstraints(BoardNode[][] knowledgeBaseBoard, BoardCellPanel[][] mineSweeperCells,
+    public static boolean solveSingleConstraints(BoardNode[][] knowledgeBaseBoard, BoardCellPanel[][] mineSweeperCells,
     		ArrayList<BoardNode> availableCells, ArrayList<BoardNode> clearedCells, ArrayList<Logic> constraints) {
     	// Now, loop through all constraints and solve all solvable ones by calling
         // updateKnowledgeBase for all of them. If any call to updateKnowledgeBase
@@ -420,11 +563,22 @@ public class Minesweeper {
             steadyState = true;
             for (int i = constraints.size() - 1; i >= 0; i--) {
                 Logic currentConstraint = constraints.get(i);
-                BoardNode constraintCell = currentConstraint.cell;
-                ArrayList<BoardNode> newlyFlagged = updateKnowledgeBase(knowledgeBaseBoard, mineSweeperCells, constraintCell, availableCells, clearedCells, currentConstraint, constraints);
-                if (newlyFlagged.size() > 0) steadyState = false;
+                // The following line results in checking if the constraint is solvable,
+                // solving it if so, which necessarily involves flagging all of the variables
+                // in that constraint, removing that constraint from the list of constraints,
+                // and updating the other constraints accordingly. If newlyFlagged.size > 0,
+                // then we know that nodes got flagged and constraints were updated, so we should
+                // check if any of the constraints now have contradictions.
+                ArrayList<BoardNode> newlyFlagged = updateKnowledgeBase(knowledgeBaseBoard, mineSweeperCells, availableCells, clearedCells, currentConstraint, constraints);
+                if (newlyFlagged.size() > 0) {
+                	if (checkContradiction(constraints)) {
+                		return true;
+                	}
+                	steadyState = false;
+                }
             }
         }
+        return false;
     }
     
     public static void updateAllConstraints(ArrayList<Logic> constraints) {
@@ -444,7 +598,27 @@ public class Minesweeper {
         }
     }
     
-    public static boolean solveSystemConstraints(BoardCellPanel[][] mineSweeperCells, ArrayList<BoardNode> availableCells, ArrayList<BoardNode> clearedCells, ArrayList<Logic> constraints) {
+    public static boolean checkContradiction(ArrayList<Logic> constraints) {
+    	// Goes through all constraints to look for any contradictions.
+    	// Returns true if it finds at least one; false if everything is acceptable.
+    	for (int i = 0; i < constraints.size(); i++) {
+    		Logic currentConstraint = constraints.get(i);
+    		if (currentConstraint.isContradiction()) {
+    			System.out.print("The following constraint results in a contradiction: ");
+    			StringBuilder equation = new StringBuilder();
+    			for (BoardNode variable : currentConstraint.unknownNbrs) {
+    				equation.append("(" + variable.row + ", " + variable.col + ")" + " + ");
+    			}
+    			equation.delete(equation.length() - 3, equation.length());
+        		equation.append(" = " + currentConstraint.minesLeft);
+        		System.out.println(equation.toString());
+    			return true;
+    		}
+    	}
+    	return false;
+    }
+    
+    public static int solveSystemConstraints(BoardCellPanel[][] mineSweeperCells, ArrayList<BoardNode> availableCells, ArrayList<BoardNode> clearedCells, ArrayList<Logic> constraints) {
     	 // Now, sort the list of constraints in descending order by the number of mines they have left.
         constraints.sort(new Comparator<Logic>() {
         	public int compare(Logic constraintOne, Logic constraintTwo) {
@@ -455,7 +629,13 @@ public class Minesweeper {
         		return minesLeftComp;
         	}
         });
-        boolean isFlagged = false;
+        // Status is an int representing the manner in which the method returns
+        // 0 -> none of the constraints can be simplified, so nothing happened.
+        // 1 -> some of the constraints combined to result in a valid simplification.
+        // 2 -> we were able to simplify, but when we checked to see if minesLeft resolved
+        // to a valid number for the variable we wanted to flag OR if minesLeft did not 
+        // resolve to a number between 0 and # of variables in constraint (case 3).
+        int status = 0;
         for (int i = 0; i < constraints.size(); i++) {
         	for (int j = i + 1; j < constraints.size(); j++) {
         		// Write method to find how many variables in constraintTwo are in constraintOne
@@ -470,19 +650,36 @@ public class Minesweeper {
             	// second constraint, one variable in the second constraint that is not in the 
             	// first constraint, and minesLeftDiff is 1, then we can conclude that the variable
             	// in the first constraint is 1 and the variable in the second constraint is 0.
-            	if (varsNotInTwo.size() == 1 && varsNotInOne.size() == 1 && minesLeftDiff == 1) {
-            		isFlagged = true;
-            		BoardNode mineVariable = varsNotInTwo.get(0);
-            		BoardNode safeVariable = varsNotInOne.get(0);
-            		mineVariable.isMineFlagged = true;
-            		mineVariable.isCleared = false;
-            		availableCells.remove(mineVariable);
-            		safeVariable.isMineFlagged = false;
-            		safeVariable.isCleared = true;
-            		clearedCells.add(safeVariable);
-            		changeCell(mineSweeperCells[mineVariable.row][mineVariable.col], "M");
-            		changeCell(mineSweeperCells[safeVariable.row][safeVariable.col], "C");
-            		break;
+            	if (varsNotInTwo.size() == 1 && varsNotInOne.size() == 1) {
+            		if (minesLeftDiff == 1) {
+            			status = 1;
+                		BoardNode mineVariable = varsNotInTwo.get(0);
+                		BoardNode safeVariable = varsNotInOne.get(0);
+                		mineVariable.isMineFlagged = true;
+                		mineVariable.isCleared = false;
+                		safeVariable.isMineFlagged = false;
+                		safeVariable.isCleared = true;
+                		
+                		if (mineSweeperCells != null) {
+                			availableCells.remove(mineVariable);
+                			clearedCells.add(safeVariable);
+                			changeCell(mineSweeperCells[mineVariable.row][mineVariable.col], "M");
+                    		changeCell(mineSweeperCells[safeVariable.row][safeVariable.col], "C");
+                		}
+                		
+                		break;
+            		} else if (minesLeftDiff != 0) {
+            			// This case involves subtracting two constraints to end up with an equation
+            			// in the form a - b = c. If c is 1, a is 1 and b is 0 and they're flagged
+            			// as above. If c is 0, the constraint is valid but we can't solve so we continue.
+            			// If c is > 1 or < 0, then something is wrong.
+            			status = 2;
+            			System.out.println("Contradiction in direct inference system of equations case 1.");
+            			System.out.println("(" + varsNotInTwo.get(0).row + ", " + varsNotInTwo.get(0).col + ") - ("
+            					+ varsNotInOne.get(0).row + ", " + varsNotInOne.get(0).col + ") = " + minesLeftDiff);
+            			break;
+            		}
+            		
             	} else if (varsNotInOne.size() == 0) {
             		// Cases 2 and 3 occur if the variables of the second constraint equation
             		// are a strict subset of the variables of the first constraint equation.
@@ -494,48 +691,72 @@ public class Minesweeper {
             		if (varsNotInTwo.size() == 1) {
             			BoardNode flagVariable = varsNotInTwo.get(0);
             			if (minesLeftDiff == 1) {
-            				isFlagged = true;
+            				status = 1;
             				flagVariable.isMineFlagged = true;
             				flagVariable.isCleared = false;
-            				availableCells.remove(flagVariable);
-            				changeCell(mineSweeperCells[flagVariable.row][flagVariable.col], "M");
+            				if (mineSweeperCells != null) {
+            					availableCells.remove(flagVariable);
+                				changeCell(mineSweeperCells[flagVariable.row][flagVariable.col], "M");
+            				}
+            				
             				break;
             			} else if (minesLeftDiff == 0) {
-            				isFlagged = true;
+            				status = 1;
             				flagVariable.isMineFlagged = false;
             				flagVariable.isCleared = true;
-            				clearedCells.add(flagVariable);
-            				changeCell(mineSweeperCells[flagVariable.row][flagVariable.col], "C");
+            				if (mineSweeperCells != null) {
+            					clearedCells.add(flagVariable);
+                				changeCell(mineSweeperCells[flagVariable.row][flagVariable.col], "C");
+            				}
+            				
             				break;
             			} else {
-            				System.out.println("Contradiction in direct inference system of equations.");
+            				// We've simplified a variable to equal a value > 1 or < 0
+            				status = 2;
+            				System.out.println("Contradiction in direct inference system of equations case 2.");
+            				System.out.println("(" + varsNotInTwo.get(0).row + ", " + varsNotInTwo.get(0).col
+            						+ ") = " + minesLeftDiff);
+            				break;
             			}
             		} else {
-            			// Manually update constraintOne's unknownNbrs to have varsNotInTwo
-            			// and minesLeft to have minesLeftDiff
-            			constraintOne.unknownNbrs = new ArrayList<BoardNode>(varsNotInTwo);
-            			constraintOne.minesLeft = minesLeftDiff;
-            			// Since this constraint might now be out of order in the list, resort it
-            			// and restart the loops
-            			constraints.sort(new Comparator<Logic>() {
-            	        	public int compare(Logic constraintOne, Logic constraintTwo) {
-            	        		int minesLeftComp = Integer.compare(constraintTwo.minesLeft, constraintOne.minesLeft);
-            	        		if (minesLeftComp == 0) {
-            	        			return Integer.compare(constraintTwo.unknownNbrs.size(), constraintOne.unknownNbrs.size());
-            	        		}
-            	        		return minesLeftComp;
-            	        	}
-            	        });
-            			//System.out.println("Restarting system of equations solver...");
-            			//i = -1;
-            			isFlagged = true;
-            			break;
+            			if (minesLeftDiff >= 0 && minesLeftDiff <= varsNotInTwo.size()) {
+            				// Manually update constraintOne's unknownNbrs to have varsNotInTwo
+                			// and minesLeft to have minesLeftDiff
+            				status = 1;
+            				constraintOne.unknownNbrs = new ArrayList<BoardNode>(varsNotInTwo);
+                			constraintOne.minesLeft = minesLeftDiff;
+                			// Since this constraint might now be out of order in the list, resort it
+                			// and restart the loops
+                			constraints.sort(new Comparator<Logic>() {
+                	        	public int compare(Logic constraintOne, Logic constraintTwo) {
+                	        		int minesLeftComp = Integer.compare(constraintTwo.minesLeft, constraintOne.minesLeft);
+                	        		if (minesLeftComp == 0) {
+                	        			return Integer.compare(constraintTwo.unknownNbrs.size(), constraintOne.unknownNbrs.size());
+                	        		}
+                	        		return minesLeftComp;
+                	        	}
+                	        });
+                			break;
+            			} else {
+            				// We simplified the constraint and ended up with a contradiction.
+            				status = 2;
+            				System.out.println("Contradiction in direct inference system of equations case 3.");
+            				StringBuilder equation = new StringBuilder();
+            				for (BoardNode variable : varsNotInTwo) {
+            					equation.append("(" + variable.row + ", " + variable.col + ") + ");
+            				}
+            				equation.delete(equation.length() - 3, equation.length());
+                    		equation.append(" = " + minesLeftDiff);
+                    		System.out.println(equation.toString());
+            				break;
+            			}
+            			
             		}
             	}
         	}
-        	if (isFlagged) break;
+        	if (status != 0) break;
         }
-        return isFlagged;
+        return status;
     }
     
     public static void removeDuplicates(ArrayList<Logic> constraints) {
@@ -598,26 +819,32 @@ public class Minesweeper {
     		System.out.println(equation);
     	}
     }
-     
-    public static void directInference (BoardNode[][] knowledgeBaseBoard, BoardCellPanel[][] mineSweeperCells,
+
+    
+    public static boolean directInference (BoardNode[][] knowledgeBaseBoard, BoardCellPanel[][] mineSweeperCells,
             BoardNode kbQuery, ArrayList<BoardNode> availableCells, ArrayList<BoardNode> clearedCells,
-            ArrayList<Logic> constraints, boolean isQueryRandom) {
-        // while logic is still solvable in knowledge base, solve
-        // when we get something solvable, solve it, then restart through knowledge base
-        // Stores recently flagged BoardNodes (initially queried node goes in here
-        // if it was random)
+            ArrayList<Logic> constraints) {
+        
         // First, add a new constraint for the queried cell if it's not a mine and
         // cannot be solved. UpdateQuery already called in playInferenceGame, so all
         // constraints and knowledgeBaseBoard already reflect kbQuery as a known cell.
         // Attempt to solve the constraint for the current cell, flagging its neighbors
         // and updating the constraints as necessary via updateKnowledgeBase.
+    	
+    	// Note: when directInference is called from constraintSatisfaction, the kbQuery
+    	// contains the BoardNode variable with an ASSUMPTION (either flagged as mine or clear).
+    	// However, the first if statement will always be ignored because the flagged variable
+    	// will not have its numMineNbrsDisplayed reset from -1 even if we assume its clear
+    	// since it is not queried and we're not adding any new constraints.
         if (kbQuery.numMineNbrsDisplayed != -1) {
             Logic constraint = new Logic(kbQuery, getNbrs(knowledgeBaseBoard, kbQuery));
             if (!constraint.isSolved()) {
                 constraints.add(constraint);
                 // We know it's not solved...so try to see if we can solve it
-                // and accordingly flag its neighbors!
-                updateKnowledgeBase(knowledgeBaseBoard, mineSweeperCells, kbQuery, availableCells, clearedCells, constraint, constraints);
+                // and accordingly flag its neighbors! If neighbors are flagged/
+                // variables are solved, then all the constraints are also updated
+                // and checked for contradictions.
+                updateKnowledgeBase(knowledgeBaseBoard, mineSweeperCells, availableCells, clearedCells, constraint, constraints);
             }
         }
         // Here, we first infer by solving cells based on each logic constraint independently
@@ -628,19 +855,23 @@ public class Minesweeper {
         // may once again be solvable, causing the loop to repeat. Eventually, we will hit a 
         // state when we cannot solve anything through the system of equations, which will let us
         // leave the loop having inferred all that we possibly can.
-        boolean areVariablesSolved = true;
-        while (areVariablesSolved) {
+        int areVariablesSolved = 1;
+        while (areVariablesSolved == 1) {
         	// Following method loops through all constraints and solves as many as it can
             // one at a time (i.e., equations that can be solved without using a system; cells
             // that can be flagged by using info from just one clue).
-            solveSingleConstraints(knowledgeBaseBoard, mineSweeperCells, availableCells, clearedCells, constraints);
-            // checkForContradictions()
+            boolean singleContradiction = solveSingleConstraints(knowledgeBaseBoard, mineSweeperCells, availableCells, clearedCells, constraints);
+            if (singleContradiction) {
+            	System.out.println("Contradiction occurred when solving single constraints via direct inference.");
+            	return true;
+            }
             removeDuplicates(constraints);
             System.out.println("After inferring based on single constraints: ");
             printConstraints(constraints);
             System.out.println("Finished inferring based on single constraints. Press c to infer based on systems of constraints: ");
             Scanner reader = new Scanner(System.in);
             String keepGoing = reader.nextLine();
+            //reader.close();
             // Now that everything has been inferred using all uncovered clues independently, we
             // use the following method to sort all the constraints based on the value of the 
             // right-hand side of the equation in descending order (minesLeft). Then, we take
@@ -648,9 +879,8 @@ public class Minesweeper {
             // equation. When that is done, we have to update all the constraints IF some variables
             // were solved by the system of equations solver. 
             areVariablesSolved = solveSystemConstraints(mineSweeperCells, availableCells, clearedCells, constraints);
-            // checkforContradiction()
-            
-            if (areVariablesSolved) {
+           
+            if (areVariablesSolved == 1) {
             	// If we were able to simplify the constraints somewhat by the system solver 
             	// (we either flagged a variable or rewrote an equation with fewer variables)
             	// we should pass through all constraints and remove any that are now duplicates.
@@ -660,35 +890,45 @@ public class Minesweeper {
             	updateAllConstraints(constraints);
             	// Remove any duplicate constraints that may have arisen by updating constraints.
             	removeDuplicates(constraints);
-            	
+            } else if (areVariablesSolved == 2) {
+            	System.out.println("Contradiction occurred when solving system of constraints.");
+            	return true;
             }
             System.out.println("After inferring based on system of contraints.");
             printConstraints(constraints);
         }
+        return false;
     }
  
     public static ArrayList<BoardNode> flagAllNeighbors (BoardNode[][] boardKnowledgeBase, BoardCellPanel[][] mineSweeperCells,
-            BoardNode kbQuery, ArrayList<BoardNode> availableCells, ArrayList<BoardNode> clearedCells,
+            ArrayList<BoardNode> availableCells, ArrayList<BoardNode> clearedCells,
             Logic constraint, ArrayList<Logic> constraints) {
-//      try {
-//          TimeUnit.SECONDS.sleep(1);
-//      } catch (InterruptedException e) {
-//          e.printStackTrace();
-//      }
+    	// This method is called if all the variables in the constraint passed in can be solved.
+    	// Calling flagNbrs for the constraint gives us all the unknownNbrs (variables) for 
+    	// the constraint flagged as either mines or clear.
+    	// If we are not in constraint satisfaction, then we will pass in a non-null value for
+    	// mineSweeperCells (the GUI). Then, we have to update the GUI, availableCells, and
+    	// clearedCells for each of the variable BoardNodes that were just solved and flagged.
+    	// If we are in constraint satisfaction, we don't need to do that. All that has to be 
+    	// done is flagging all the variables in the constraint (thereby solving them), and
+    	// then removing the constraint. All other constraints are then updated accordingly
+    	// and the solved variables are returned so that we can check for contradictions
+    	// among the remaining updated constraints.
         ArrayList<BoardNode> newlyFlaggedNbrs = constraint.flagNbrs();
-        for (int i = 0; i < newlyFlaggedNbrs.size(); i++) {
-            BoardNode newlyFlaggedNbr = newlyFlaggedNbrs.get(i);
-            boolean flag = false;
-            if (newlyFlaggedNbr.isMineFlagged) {
-                flag = true;
-                changeCell(mineSweeperCells[newlyFlaggedNbr.row][newlyFlaggedNbr.col], "M");
-                availableCells.remove(newlyFlaggedNbr);
-            } else {
-                changeCell(mineSweeperCells[newlyFlaggedNbr.row][newlyFlaggedNbr.col], "C");
-                clearedCells.add(newlyFlaggedNbr);
+        if (mineSweeperCells != null) {
+        	for (int i = 0; i < newlyFlaggedNbrs.size(); i++) {
+                BoardNode newlyFlaggedNbr = newlyFlaggedNbrs.get(i);
+                if (newlyFlaggedNbr.isMineFlagged) {
+                    changeCell(mineSweeperCells[newlyFlaggedNbr.row][newlyFlaggedNbr.col], "M");
+                    availableCells.remove(newlyFlaggedNbr);
+                } else {
+                    changeCell(mineSweeperCells[newlyFlaggedNbr.row][newlyFlaggedNbr.col], "C");
+                    clearedCells.add(newlyFlaggedNbr);
+                }
+                
             }
-            //updateFlaggedNbrs(boardKnowledgeBase, newlyFlaggedNbr, flag);
         }
+        
         // We have solved the constrained cell (flagged all neighbors around it), so we can
         // remove it from our ArrayList of constraints.
         constraints.remove(constraint);
@@ -701,34 +941,7 @@ public class Minesweeper {
             Logic currentConstraint = constraints.get(i);
             currentConstraint.updateConstraint();
         }
-        //removeDuplicates(constraints);
-        /*ArrayList<BoardNode> nbrs = getNbrs(board, cell);
-        ArrayList<BoardNode> newlyFlaggedNbrs = new ArrayList <BoardNode> ();
-        while (!nbrs.isEmpty()) {
-            BoardNode nbr = nbrs.remove(0);
-            if (nbr.numMineNbrsDisplayed == -1 && !nbr.isMineFlagged && !nbr.isCleared) {
-                System.out.println("cell about to be flagged: [" + nbr.row +"][" + nbr.col +"]");
-                if (flag) {
-                    board[nbr.row][nbr.col].isMineFlagged = true;
-                    changeCell(mineSweeperCells[nbr.row][nbr.col], "M");
-                    availableCells.remove(board[nbr.row][nbr.col]);
-                    newlyFlaggedNbrs.add(board[nbr.row][nbr.col]);
-                }
-                else {
-                    board[nbr.row][nbr.col].isCleared = true;
-                    changeCell(mineSweeperCells[nbr.row][nbr.col], "C");
-                    clearedCells.add(board[nbr.row][nbr.col]);
-                    newlyFlaggedNbrs.add(board[nbr.row][nbr.col]);
-                }
-                updateFlaggedNbrs (board, nbr, flag);
-            }
-        }*/
-//      System.out.print("newlyFlaggedNbrs list for [" + cell.row + "][" + cell.col + "]: ");
-//      for (int i = 0; i < newlyFlaggedNbrs.size(); i++) {
-//          BoardNode nbr = newlyFlaggedNbrs.get(i);
-//          System.out.print("[" + nbr.row + "][" + nbr.col + "] ");
-//      }
-//      System.out.println();
+
         return newlyFlaggedNbrs;
     }
    
@@ -829,9 +1042,9 @@ public class Minesweeper {
    
     public static void main(String[] args) {
     	
-    	Environment gameBoard = new Environment(5, 5);
+    	Environment gameBoard = new Environment(7, 12);
      
-	    BoardCellPanel[][] mineSweeperCells = buildBoard(5);
+	    BoardCellPanel[][] mineSweeperCells = buildBoard(7);
 	    for (int i = 0; i < mineSweeperCells.length; i++) {
 	        for (int j = 0; j < mineSweeperCells.length; j++) {
 	            changeCell(mineSweeperCells[i][j], gameBoard.textGUI(i, j));
@@ -839,7 +1052,7 @@ public class Minesweeper {
 	    }
 //      double score = playGame(gameBoard, 27);
 //      System.out.println("Basic Agent Score: " + score);
-      	double score = playInferenceGame(gameBoard, 5);
+      	double score = playInferenceGame(gameBoard, 12);
 //      System.out.println("Inference game score: " + score);
 //        plotAgentPerformance();
        
