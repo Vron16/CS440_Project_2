@@ -598,7 +598,7 @@ public class Minesweeper {
     		System.out.println(equation);
     	}
     }
-    
+     
     public static void directInference (BoardNode[][] knowledgeBaseBoard, BoardCellPanel[][] mineSweeperCells,
             BoardNode kbQuery, ArrayList<BoardNode> availableCells, ArrayList<BoardNode> clearedCells,
             ArrayList<Logic> constraints, boolean isQueryRandom) {
