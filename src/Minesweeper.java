@@ -129,7 +129,7 @@ public class Minesweeper {
         return (totalMines - numErrors)/totalMines;
     }
    
-    public static double playInferenceGame(Environment board, double totalMines) {
+    public static double playInferenceGame(Environment board, double totalMines, boolean isMinCost) {
         double numErrors = 0;
         BoardNode[][] knowledgeBaseBoard = new BoardNode[board.getDim()][board.getDim()];
         for (int i = 0; i < board.getDim(); i++) {
@@ -244,22 +244,6 @@ public class Minesweeper {
             		copyConstraints(constraintsCopy, constraints, knowledgeBaseCopy);
                 	
                 }
-//                System.out.println("entering constraint satisfy");
-//                ArrayList <BoardNode> variablesToTry = copyAvailable(availableCells); // consider deep copy
-//                while (!variablesToTry.isEmpty()) {
-//                    BoardNode flagNext = variablesToTry.get(0);
-//                    variablesToTry.remove(0);
-//                    BoardNode nextToClear = constraintSatisfaction(knowledgeBaseBoard, knowledgeBaseGUI, flagNext, constraints);
-//                    if (nextToClear != null) {
-//                    	if (nextToClear != flagNext) { //returned cell other than the original--board is solved
-//                    		return (totalMines - numErrors)/(totalMines);
-//                    	}
-//                    	clearedCells.add(nextToClear);
-//                        System.out.println("nextToClear: [" + nextToClear.row + "][" + nextToClear.col);
-//                    } else {
-//                    	System.out.println("null");
-//                    }
-//                }
             }
             else {
             	System.out.println("querying random cell");
@@ -269,9 +253,17 @@ public class Minesweeper {
                 assignMinePrbs(knowledgeBaseBoard, constraints);
                 
              //   Random randGenerator = new Random();
-                BoardNode kbQuery = availableCells.remove(cellWithMinMinePrb(availableCells));
+                //need to initialize kbQuery to something random
+                BoardNode kbQuery = new BoardNode (0, 0);
+                if (isMinCost) {
+                    kbQuery = availableCells.remove(cellWithMinMinePrb(availableCells));
+                }
+                else {
+                	computeRisk(knowledgeBaseBoard, constraints);
+                	kbQuery = availableCells.remove(cellWithMinRisk(availableCells));
+                }
                 int clue = board.query(kbQuery.row, kbQuery.col);
-                System.out.println("Querying cell: (" + kbQuery.row + ", " + kbQuery.col + ") with mine prb " + kbQuery.minePrb);
+                //System.out.println("Querying cell: (" + kbQuery.row + ", " + kbQuery.col + ") with mine prb " + kbQuery.minePrb);
                 numErrors += updateQuery(knowledgeBaseBoard, knowledgeBaseGUI, kbQuery, clue, constraints);
                 directInference(knowledgeBaseBoard, knowledgeBaseGUI, kbQuery, availableCells, clearedCells, constraints);
             }
@@ -291,6 +283,90 @@ public class Minesweeper {
     	}
     	return index;
     }
+    
+    
+    //cell with the min risk is defined as the cell that would reveal the most information
+    //solves the most cell if either clear or flag
+    public static int cellWithMinRisk (ArrayList <BoardNode> available) {
+    	double mostSolved = 0;
+    	int index = 0;
+    	for (int i = 0; i < available.size(); i++) {
+    		if (available.get(i).expectedSolvedCells > mostSolved) {
+    			mostSolved = available.get(i).expectedSolvedCells;
+    			index = i;
+    		}
+    	}
+    	return index;
+    }
+    
+    public static void computeRisk (BoardNode[][] knowledgeBaseBoard, ArrayList<Logic> constraints) {
+    	ArrayList <BoardNode> variables = new ArrayList <BoardNode> ();
+    	getVariables (variables, constraints);
+    	for (int i = 0; i < variables.size(); i++) { //get Variables
+    		BoardNode cell = variables.get(i);
+        	//compute the number of cells that can be solved if cell is a mine
+            BoardNode[][] knowledgeBaseMineCopy = new BoardNode[knowledgeBaseBoard.length][knowledgeBaseBoard.length];
+            copyKnowledgeBase(knowledgeBaseMineCopy, knowledgeBaseBoard);
+            ArrayList<Logic> constraintsMineCopy = new ArrayList<Logic>();
+            copyConstraints(constraintsMineCopy, constraints, knowledgeBaseMineCopy);
+            int numSolvedMine = 0;
+            BoardNode variable = constraintSatisfy(knowledgeBaseMineCopy, cell, constraintsMineCopy, true);
+        	if (variable == null) { //constraintSatisfy did not find a contradiction
+        		numSolvedMine = numSolved(knowledgeBaseBoard, knowledgeBaseMineCopy);
+        	}
+        	else {
+        		numSolvedMine = 1;
+        	}
+        	System.out.println("Number of cells solved if mine for cell (" + cell.row + "," 
+    				+ cell.col + "): " + numSolvedMine);
+        	
+        	//compute the number of cells that can be solved if cell is clear
+            BoardNode[][] knowledgeBaseClearCopy = new BoardNode[knowledgeBaseBoard.length][knowledgeBaseBoard.length];
+            copyKnowledgeBase(knowledgeBaseClearCopy, knowledgeBaseBoard);
+            ArrayList<Logic> constraintsClearCopy = new ArrayList<Logic>();
+            copyConstraints(constraintsClearCopy, constraints, knowledgeBaseClearCopy);
+        	int numSolvedClear = 0;
+            variable = constraintSatisfy(knowledgeBaseClearCopy, cell, constraintsClearCopy, false);
+        	if (variable == null) { //constraintSatisfy did not find a contradiction
+            	numSolvedClear = numSolved(knowledgeBaseBoard, knowledgeBaseClearCopy);
+        	}
+        	else {
+        		numSolvedClear = 1;
+        	}
+        	System.out.println("Number of cells solved if clear for cell (" + cell.row + "," 
+    				+ cell.col + "): " + numSolvedClear);
+        	
+        	//expected number of cells that can be solved according to formula
+        	cell.expectedSolvedCells = (cell.minePrb * numSolvedMine) + ((1 - cell.minePrb) * numSolvedClear);
+    		System.out.println("mine prob for cell (" + cell.row + "," 
+    				+ cell.col + "): " + cell.minePrb);
+    		System.out.println("Assigning risk probability for cell (" + cell.row + "," 
+    				+ cell.col + "): " + cell.expectedSolvedCells);
+    	}
+    }
+    
+    
+    //calculates the number of cells that were solved (flagged) by counting the number of cells that are
+    //different between the modified copy and the original board
+    public static int numSolved (BoardNode[][] original, BoardNode[][] updatedCopy) {
+    	int cellsSolved = 0;
+    	for (int i = 0; i < original.length; i++) {
+    		for (int j = 0; j < original.length; j++) { //separate if statements
+    			if (original[i][j].isCleared && updatedCopy[i][j].isCleared ||
+    					original[i][j].isMineFlagged && updatedCopy[i][j].isMineFlagged ||
+    					(original[i][j].isCleared == false && updatedCopy[i][j].isCleared == false) &&
+    					(original[i][j].isMineFlagged == false && updatedCopy[i][j].isMineFlagged == false)) {
+    				continue;
+    			}
+    			else {
+    				cellsSolved++;
+    			}
+    		}
+    	}
+    	return cellsSolved;
+    }
+    
+    
     public static void copyKnowledgeBase(BoardNode[][] knowledgeBaseCopy, BoardNode[][] knowledgeBaseBoard) {
     	for (int i = 0; i < knowledgeBaseBoard.length; i++) {
     		for (int j = 0; j < knowledgeBaseBoard.length; j++) {
@@ -402,70 +478,6 @@ public class Minesweeper {
     	return null;
     }
    
-    //before constraintSatisfaction is called: BoardNode flip = findMostFrequentBN (constraints); //mark flip as flag
-    //if return null -> guess
-   
-    public static BoardNode constraintSatisfaction (BoardNode[][] knowledgeBaseBoard, BoardCellPanel[][] mineSweeperCells,
-            BoardNode originalFlagNext, ArrayList<Logic> constraints) {
-            ArrayList <BoardNode> newlyFlaggedNbrs = new ArrayList <BoardNode> ();
-            ArrayList<BoardNode> modifiedCells = new ArrayList <BoardNode>();
-            ArrayList<Logic> originalConstraints = copyConstraints(constraints);
-            newlyFlaggedNbrs.add(originalFlagNext);
-            while (!newlyFlaggedNbrs.isEmpty()) {
-                BoardNode currentFlagNext = newlyFlaggedNbrs.get(0);
-                newlyFlaggedNbrs.remove(0);
-                for (int i = 0; i < constraints.size(); i++) {
-                    Logic constraint = constraints.get(i);
-                   // System.out.println("infinite logic constraints");
-                    for (int j = 0; j < constraint.unknownNbrs.size(); j++) {
-                        if (constraint.unknownNbrs.get(j) == currentFlagNext) {
-                       // 	System.out.println("infinite constraint neighbors");
-                            constraint.unknownNbrs.get(j).isMineFlagged = true;
-                            constraint.unknownNbrs.remove(j);
-                            constraint.minesLeft--;
-                            if (constraint.unknownNbrs.size() < constraint.minesLeft) { //contradiction
-                                restoreOriginalContext(knowledgeBaseBoard, modifiedCells, constraints, originalConstraints); //restores context before constraint satisfaction
-                                originalFlagNext.isMineFlagged = !originalFlagNext.isMineFlagged;
-                                originalFlagNext.isCleared = !originalFlagNext.isCleared;
-                                return originalFlagNext;
-                            }
-                            else {
-                                if (constraint.isSolvable()) {
-                                	ArrayList<BoardNode> temp = constraint.flagNbrs();
-                                    newlyFlaggedNbrs.addAll(temp);
-                                    modifiedCells.addAll(temp);
-                                    constraints.remove(constraint);
-                                }
-                                boolean solved = true;
-                                if (constraints.isEmpty()) { //board might be solved
-                                	for (int r = 0; r < knowledgeBaseBoard.length; r++) {
-                                		for (int s = 0; s < knowledgeBaseBoard.length; s++) {
-                                			if (!knowledgeBaseBoard[r][s].isMineFlagged && !knowledgeBaseBoard[r][s].isCleared) { //cell is not solved
-                                				solved = false;
-                                				break;
-                                			}
-                                		}
-                                	}
-                                	
-                                	if (solved) { //return some other random cell
-                                		int rRow = originalFlagNext.row+1;
-                                		if (rRow >= knowledgeBaseBoard.length) { //row index is out of bounds
-                                			rRow = originalFlagNext.row-1;
-                                		}
-                                		return knowledgeBaseBoard[rRow][0];
-                                	}
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            originalFlagNext.isMineFlagged = false;
-            originalFlagNext.isCleared = false;
-            restoreOriginalContext(knowledgeBaseBoard, modifiedCells, constraints, originalConstraints); //restores context before constraint satisfaction
-            return null;
-        }
      
     public static void restoreOriginalContext(BoardNode[][] wrongKB, ArrayList<BoardNode> modified,
             ArrayList<Logic> wrongConstraints, ArrayList<Logic> originalConstraints) {
@@ -514,10 +526,10 @@ public class Minesweeper {
     				mineInstances++;
     			}
     		}
-    		System.out.println("Assigning mine probability for cell (" + cells.get(i).row + "," 
-    				+ cells.get(i).col + "): " + (mineInstances/totalConfigs));
+//    		System.out.println("Assigning mine probability for cell (" + cells.get(i).row + "," 
+//    				+ cells.get(i).col + "): " + (mineInstances/totalConfigs));
     		cells.get(i).minePrb = (mineInstances/totalConfigs);
-    		System.out.println(i);
+//    		System.out.println(i);
     	}
     }
     
@@ -1068,7 +1080,7 @@ public class Minesweeper {
             for (int trial = 0; trial < 1000; trial++) {
                 Environment myBoard = new Environment(10, numMines);
                 totalBasicScore += playGame(myBoard, numMines);
-                totalDirInfScore += playInferenceGame(myBoard, numMines);
+                totalDirInfScore += playInferenceGame(myBoard, numMines, true);
             }
             double avgBasicScore = totalBasicScore/1000;
             double avgDirInfScore = totalDirInfScore/1000;
@@ -1100,9 +1112,9 @@ public class Minesweeper {
    
     public static void main(String[] args) {
     	
-    	Environment gameBoard = new Environment(15, 100);
+    	Environment gameBoard = new Environment(9, 27);
      
-	    BoardCellPanel[][] mineSweeperCells = buildBoard(15);
+	    BoardCellPanel[][] mineSweeperCells = buildBoard(9);
 	    for (int i = 0; i < mineSweeperCells.length; i++) {
 	        for (int j = 0; j < mineSweeperCells.length; j++) {
 	            changeCell(mineSweeperCells[i][j], gameBoard.textGUI(i, j));
@@ -1110,7 +1122,7 @@ public class Minesweeper {
 	    }
      // double score = playGame(gameBoard, 12);
 //      System.out.println("Basic Agent Score: " + score);
-      	double score = playInferenceGame(gameBoard, 12);
+      	double score = playInferenceGame(gameBoard, 27, false);
 //      System.out.println("Inference game score: " + score);
 //        plotAgentPerformance();
        

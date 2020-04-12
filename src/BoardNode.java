@@ -4,6 +4,7 @@ public class BoardNode implements Comparable <BoardNode>{
 	int row;
 	int col;
 	double minePrb = 0.5;
+	double expectedSolvedCells = 0;
 	private int numMineNbrs; //generated at start, private and hidden from agent
 	int numMineNbrsDisplayed; //initially -1, then numMineNeighbors once uncovered
 	int numMineNbrFlags; // number of neighbors agent marked as mines, initially 0
